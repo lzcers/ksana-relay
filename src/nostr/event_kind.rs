@@ -8,20 +8,8 @@ pub enum EventKind {
     TextNote,
     RecommendRelay,
     EncryptedDirectMessage,
+    EventDeletion,
     Other(u64),
-}
-
-impl From<EventKind> for u32 {
-    fn from(value: EventKind) -> Self {
-        use EventKind::*;
-        match value {
-            Metadata => 0,
-            TextNote => 1,
-            RecommendRelay => 3,
-            EncryptedDirectMessage => 4,
-            Other(v) => v as u32,
-        }
-    }
 }
 
 impl From<EventKind> for u64 {
@@ -32,23 +20,12 @@ impl From<EventKind> for u64 {
             TextNote => 1,
             RecommendRelay => 3,
             EncryptedDirectMessage => 4,
+            EventDeletion => 5,
             Other(v) => v,
         }
     }
 }
 
-impl From<i64> for EventKind {
-    fn from(u: i64) -> Self {
-        use EventKind::*;
-        match u {
-            0 => Metadata,
-            1 => TextNote,
-            2 => RecommendRelay,
-            4 => EncryptedDirectMessage,
-            v => Other(v as u64),
-        }
-    }
-}
 impl From<u64> for EventKind {
     fn from(u: u64) -> Self {
         use EventKind::*;
@@ -57,6 +34,7 @@ impl From<u64> for EventKind {
             1 => TextNote,
             2 => RecommendRelay,
             4 => EncryptedDirectMessage,
+            5 => EventDeletion,
             v => Other(v),
         }
     }

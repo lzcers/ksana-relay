@@ -9,6 +9,8 @@ pub struct Database {
     pool: SqlitePool,
 }
 
+// pub struct DBEvent(Event);
+
 impl Database {
     pub async fn connect(url: &str) -> Result<Self, Error> {
         let pool = SqlitePool::connect(url).await?;
@@ -20,7 +22,8 @@ impl Database {
         let id = e.id.0.as_slice();
         let pubkey = e.pubkey.0.as_slice();
         let created_at = e.created_at.0;
-        let kind: u32 = e.kind.into();
+        let kind: u64 = e.kind.into();
+        let kind_u32 = kind as u32;
         let tags = serde_json::ser::to_string(&e.tags)
             .expect("save event faild, serialization tags faild!");
         let content = &e.content;
@@ -34,7 +37,7 @@ impl Database {
             id,
             pubkey,
             created_at,
-            kind,
+            kind_u32,
             tags,
             content,
             sig
@@ -60,7 +63,7 @@ impl Database {
                                 .expect("serde pubkey faild from database row!"),
                         ),
                         created_at: Unixtime(row.created_at),
-                        kind: EventKind::from(row.kind),
+                        kind: EventKind::from(row.kind as u64),
                         tags,
                         content: row.content,
                         sig: Signature::try_from_vec_u8(row.sig)
@@ -75,13 +78,32 @@ impl Database {
         Ok(events)
     }
 
-    #[allow(dead_code)]
-    pub async fn get_event_by_id(&self, _id: nostr::Id) -> Result<(), Error> {
-        let mut coon = self.pool.acquire().await?;
-        let _events = sqlx::query!("SELECT * FROM nostr_events")
-            .fetch_all(&mut coon)
-            .await;
+    pub async fn delete_event(
+        &mut self,
+        id: &nostr::Id,
+        pubkey: &nostr::PublicKey,
+    ) -> Result<u64, Error> {
+        let mut conn = self.pool.acquire().await?;
+        let id_slice = id.0.as_slice();
+        let pubkey_slice = pubkey.0.as_slice();
+        let r = sqlx::query!(
+            "DELETE FROM nostr_events WHERE id = ? AND pubkey = ?",
+            id_slice,
+            pubkey_slice
+        )
+        .execute(&mut conn)
+        .await?
+        .rows_affected();
+        Ok(r)
+    }
 
+    #[allow(dead_code)]
+    pub async fn get_event_by_id(&self, id: &nostr::Id) -> Result<(), Error> {
+        let mut coon = self.pool.acquire().await?;
+        let id_slice = id.0.as_slice();
+        let _events = sqlx::query!("SELECT * FROM nostr_events WHERE id = ?", id_slice)
+            .fetch_one(&mut coon)
+            .await;
         todo!()
     }
 }

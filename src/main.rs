@@ -1,9 +1,11 @@
 mod database;
+mod error;
 mod nostr;
 mod relay;
-use crate::nostr::Event;
 use dotenv::dotenv;
+use error::RelayError;
 use log::*;
+use nostr::Event;
 use relay::{Relay, Subscriber, SubscriberEvent};
 use tokio::{
     net::TcpListener,
@@ -12,7 +14,7 @@ use tokio::{
 use tokio_tungstenite::{self, accept_async, tungstenite::Result};
 
 #[tokio::main]
-async fn main() -> Result<(), database::Error> {
+async fn main() -> Result<(), RelayError> {
     dotenv().ok();
     env_logger::init();
 

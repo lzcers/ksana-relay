@@ -1,7 +1,7 @@
 use super::SubscriberEvent;
 use crate::{
     database,
-    nostr::{Event, RelayMessage},
+    nostr::{Event, EventKind, Id, PublicKey, RelayMessage, Tag},
     relay::EventFilter,
 };
 use log::{error, info};
@@ -48,11 +48,7 @@ impl Relay {
         while let Some(v) = self.subscriber_msg_receiver.recv().await {
             match v {
                 SubscriberEvent::Event(e) => {
-                    self.persist_event(&e).await;
-                    self.events.push(e.clone());
-                    self.broadcast_sender
-                        .send(e)
-                        .expect("broadcast event faild by relay");
+                    self.process_event(e).await;
                 }
                 SubscriberEvent::Req(id, filters, sx) => {
                     let mut events: Vec<Event> = vec![];
@@ -72,6 +68,52 @@ impl Relay {
             }
         }
         info!("on_subscriber_event end");
+    }
+
+    pub async fn process_event(&mut self, evt: Event) {
+        match evt.kind {
+            EventKind::TextNote => {
+                self.persist_event(&evt).await;
+                self.events.push(evt.clone());
+            }
+            EventKind::EventDeletion => {
+                let mut ids: Vec<&Id> = vec![];
+                evt.tags.iter().for_each(|tag| {
+                    if let Tag::Event { id, .. } = tag {
+                        ids.push(id);
+                    }
+                });
+                for id in ids {
+                    if self.delete_event(id, &evt.pubkey).await > 0 {
+                        self.events = self
+                            .events
+                            .iter()
+                            .filter(|e| e.id != *id)
+                            .map(|e| e.clone())
+                            .collect::<Vec<Event>>();
+                    }
+                }
+            }
+            EventKind::EncryptedDirectMessage => {
+                self.persist_event(&evt).await;
+                self.events.push(evt.clone());
+            }
+            _ => {}
+        }
+        self.broadcast_sender
+            .send(evt)
+            .expect("broadcast event faild by relay");
+    }
+
+    pub async fn delete_event(&mut self, id: &Id, pubkey: &PublicKey) -> u64 {
+        let result = self.db.delete_event(id, pubkey).await;
+        match result {
+            Ok(row) => row,
+            Err(e) => {
+                error!("delete event faild: {}", e);
+                0 as u64
+            }
+        }
     }
 
     /// 将收到的 event 持久化到数据库中
