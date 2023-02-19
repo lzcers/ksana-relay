@@ -48,15 +48,11 @@ impl Relay {
         while let Some(v) = self.subscriber_msg_receiver.recv().await {
             match v {
                 SubscriberEvent::Event(e) => {
-                    if let Ok(_) = e.verify() {
-                        self.persist_event(&e).await;
-                        self.events.push(e.clone());
-                        self.broadcast_sender
-                            .send(e)
-                            .expect("broadcast event faild by relay");
-                    } else {
-                        info!("msg verify failed！{:?}", e);
-                    }
+                    self.persist_event(&e).await;
+                    self.events.push(e.clone());
+                    self.broadcast_sender
+                        .send(e)
+                        .expect("broadcast event faild by relay");
                 }
                 SubscriberEvent::Req(id, filters, sx) => {
                     let mut events: Vec<Event> = vec![];

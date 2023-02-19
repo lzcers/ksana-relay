@@ -6,6 +6,9 @@ use serde::{de::Visitor, Deserialize, Deserializer, Serialize};
 pub enum EventKind {
     Metadata,
     TextNote,
+    RecommendRelay,
+    EncryptedDirectMessage,
+    Other(u64),
 }
 
 impl From<EventKind> for u32 {
@@ -14,6 +17,9 @@ impl From<EventKind> for u32 {
         match value {
             Metadata => 0,
             TextNote => 1,
+            RecommendRelay => 3,
+            EncryptedDirectMessage => 4,
+            Other(v) => v as u32,
         }
     }
 }
@@ -24,6 +30,9 @@ impl From<EventKind> for u64 {
         match value {
             Metadata => 0,
             TextNote => 1,
+            RecommendRelay => 3,
+            EncryptedDirectMessage => 4,
+            Other(v) => v,
         }
     }
 }
@@ -34,7 +43,9 @@ impl From<i64> for EventKind {
         match u {
             0 => Metadata,
             1 => TextNote,
-            _ => panic!(),
+            2 => RecommendRelay,
+            4 => EncryptedDirectMessage,
+            v => Other(v as u64),
         }
     }
 }
@@ -44,7 +55,9 @@ impl From<u64> for EventKind {
         match u {
             0 => Metadata,
             1 => TextNote,
-            _ => panic!(),
+            2 => RecommendRelay,
+            4 => EncryptedDirectMessage,
+            v => Other(v),
         }
     }
 }

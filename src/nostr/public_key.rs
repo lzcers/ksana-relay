@@ -39,7 +39,7 @@ impl<'de> Visitor<'de> for PublicKeyVisitor {
     type Value = PublicKey;
 
     fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "a hexadecimal string representing 32 bytes")
+        write!(f, "a publickey hexadecimal string representing 32 bytes")
     }
 
     fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>

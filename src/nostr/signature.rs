@@ -55,7 +55,7 @@ impl Visitor<'_> for SignatureVisitor {
     type Value = Signature;
 
     fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "a hexadecimal string representing 64 bytes")
+        write!(f, "a sig hexadecimal string representing 64 bytes")
     }
 
     fn visit_str<E>(self, v: &str) -> Result<Signature, E>

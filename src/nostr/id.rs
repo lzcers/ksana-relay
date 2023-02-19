@@ -44,7 +44,7 @@ impl Visitor<'_> for IdVisitor {
     type Value = Id;
 
     fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "a hexadecimal string representing 32 bytes")
+        write!(f, "a id hexadecimal string representing 32 bytes")
     }
 
     fn visit_str<E>(self, v: &str) -> Result<Id, E>

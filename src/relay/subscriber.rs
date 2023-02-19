@@ -48,6 +48,7 @@ impl Subscriber {
             reader,
         }
     }
+    //todo: 考虑为 Subscriber 加入状态和身份，控制订阅权限
     pub fn start(mut self) {
         tokio::spawn(async move {
             info!("New WebSocket connection: {}", &self.socket_addr);
@@ -84,40 +85,48 @@ impl Subscriber {
 
     pub async fn on_client_message(&mut self, msg: Message) -> Result<()> {
         if let Message::Text(client_msg) = msg {
-            if let Ok(client_msg) = serde_json::from_str::<ClientMessage>(&client_msg) {
-                match client_msg {
-                    ClientMessage::Event(e) => {
-                        // 持久化
-                        if let Err(e) = self.sender.send(SubscriberEvent::Event(e)).await {
-                            // 重发？
-                            error!("Subscriber send msg to relay faild : {}", e);
-                        };
-                    }
-                    // 订阅某个内容
-                    // 需要向 Relay 一次性请求数据
-                    ClientMessage::REQ(id, filters) => {
-                        self.subscriptions.insert(id.clone(), filters.clone());
-                        let (tx, rx) = mpsc::channel::<RelayMessage>(32);
-                        match self
-                            .sender
-                            .send(SubscriberEvent::Req(id, filters, tx))
-                            .await
-                        {
-                            Ok(_) => {
-                                self.on_relay_message(rx)
-                                    .await
-                                    .expect("on relay message faild!");
-                            }
-                            Err(e) => {
-                                error!("send msg to relay faild: {}", e);
+            match serde_json::from_str::<ClientMessage>(&client_msg) {
+                Ok(client_msg) => {
+                    match client_msg {
+                        ClientMessage::Event(e) => {
+                            if let Ok(_) = e.verify() {
+                                // 持久化
+                                if let Err(e) = self.sender.send(SubscriberEvent::Event(e)).await {
+                                    // 重发？
+                                    error!("Subscriber send msg to relay faild : {}", e);
+                                };
+                            } else {
+                                info!("msg verify failed！{:?}", e);
                             }
                         }
-                    }
-                    // 取消订阅
-                    ClientMessage::Close(id) => {
-                        self.subscriptions.remove(&id);
+                        // 订阅某个内容
+                        // 需要向 Relay 一次性请求数据
+                        // todo: 可以考虑用 onceShot
+                        ClientMessage::REQ(id, filters) => {
+                            self.subscriptions.insert(id.clone(), filters.clone());
+                            let (tx, rx) = mpsc::channel::<RelayMessage>(32);
+                            match self
+                                .sender
+                                .send(SubscriberEvent::Req(id, filters, tx))
+                                .await
+                            {
+                                Ok(_) => {
+                                    self.on_relay_message(rx)
+                                        .await
+                                        .expect("on relay message faild!");
+                                }
+                                Err(e) => {
+                                    error!("send msg to relay faild: {}", e);
+                                }
+                            }
+                        }
+                        // 取消订阅
+                        ClientMessage::Close(id) => {
+                            self.subscriptions.remove(&id);
+                        }
                     }
                 }
+                Err(e) => error!("wrong client message format: {}", e),
             }
         }
         Ok(())
