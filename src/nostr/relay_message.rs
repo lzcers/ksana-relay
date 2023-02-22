@@ -4,6 +4,7 @@ use super::event::Event;
 
 #[derive(Debug, Clone)]
 pub enum RelayMessage {
+    Auth(String),
     Event(String, Event),
     Notice(String),
 }
@@ -16,6 +17,10 @@ impl Serialize for RelayMessage {
         let mut seq = serializer.serialize_seq(None)?;
 
         match self {
+            RelayMessage::Auth(str) => {
+                seq.serialize_element("AUTH")?;
+                seq.serialize_element(str)?;
+            }
             RelayMessage::Event(id, e) => {
                 seq.serialize_element("EVENT")?;
                 seq.serialize_element(id)?;
@@ -61,6 +66,13 @@ impl<'de> Visitor<'de> for RelayMessageVisitor {
                     return Ok(RelayMessage::Event(id, event));
                 } else {
                     panic!("id or envet not found in RelayMessage::Event");
+                }
+            }
+            "AUTH" => {
+                if let Some(str) = seq.next_element()? {
+                    return Ok(RelayMessage::Auth(str));
+                } else {
+                    panic!("invalid auth msg in RelayMessage::Auth");
                 }
             }
             "NOTICE" => {

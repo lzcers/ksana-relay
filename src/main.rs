@@ -35,6 +35,7 @@ async fn main() -> Result<(), RelayError> {
             .peer_addr()
             .expect("connected streams should have a peer address");
         let ws_stream = accept_async(stream).await.expect("Failed to accept");
+
         Subscriber::new(
             peer,
             ws_stream,

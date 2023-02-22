@@ -34,7 +34,7 @@ pub struct Filter {
 
 #[derive(Debug, Clone)]
 pub enum ClientMessage {
-    /// An event
+    Auth(Event),
     Event(Event),
     REQ(String, Vec<Filter>),
     Close(String),
@@ -82,6 +82,14 @@ impl<'de> Visitor<'de> for ClientMessageVisitor {
                     panic!("unknown REQ msg")
                 }
             }
+            "AUTH" => {
+                let oe = seq.next_element::<Event>()?;
+                if let Some(e) = oe {
+                    Ok(ClientMessage::Auth(e))
+                } else {
+                    panic!("unknown Auth msg")
+                }
+            }
             "EVENT" => {
                 let oe = seq.next_element::<Event>()?;
                 if let Some(e) = oe {
@@ -110,6 +118,10 @@ impl Serialize for ClientMessage {
     {
         let mut seq = serializer.serialize_seq(None)?;
         match self {
+            ClientMessage::Auth(e) => {
+                seq.serialize_element("Auth")?;
+                seq.serialize_element(e)?;
+            }
             ClientMessage::Event(e) => {
                 seq.serialize_element("EVENT")?;
                 seq.serialize_element(e)?;

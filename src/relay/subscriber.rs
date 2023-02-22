@@ -1,11 +1,15 @@
 use super::{EventFilter, SubscriberEvent};
-use crate::nostr::{ClientMessage, Event, Filter, RelayMessage};
+use crate::nostr::{ClientMessage, Event, EventKind, Filter, PublicKey, RelayMessage, Tag};
 use futures::{
     stream::{SplitSink, SplitStream},
     SinkExt, StreamExt,
 };
 use log::{error, info};
-use std::{collections::HashMap, net::SocketAddr};
+use std::{
+    collections::HashMap,
+    net::SocketAddr,
+    time::{SystemTime, UNIX_EPOCH},
+};
 use tokio::{
     net::TcpStream,
     sync::broadcast::Receiver as BroadcastReceiver,
@@ -17,13 +21,17 @@ use tokio_tungstenite::{
     WebSocketStream,
 };
 
+struct UserInfo {
+    #[allow(dead_code)]
+    pubkey: PublicKey,
+}
+
 /// 一个消息的订阅者
 /// 发送、接收 Relay 的消息
 pub struct Subscriber {
+    user_info: Option<UserInfo>,
     subscriptions: HashMap<String, Vec<Filter>>,
     socket_addr: SocketAddr,
-    // 用户断线重连直接从 event_cache 取？
-    // event_cache: Vec<Event>,
     writer: SplitSink<WebSocketStream<TcpStream>, Message>,
     reader: SplitStream<WebSocketStream<TcpStream>>,
 
@@ -40,6 +48,7 @@ impl Subscriber {
     ) -> Self {
         let (writer, reader) = socket_stream.split();
         Subscriber {
+            user_info: None,
             subscriptions: HashMap::new(),
             socket_addr,
             sender,
@@ -52,11 +61,14 @@ impl Subscriber {
     pub fn start(mut self) {
         tokio::spawn(async move {
             info!("New WebSocket connection: {}", &self.socket_addr);
+            if self.user_info.is_none() {
+                self.send_auth_event().await;
+            }
             loop {
                 tokio::select! {
                     r = self.reader.next() => {
                         if let Some(Ok(msg)) = r {
-                            self.on_client_message(msg).await.expect("on client message error")
+                            self.on_client_message(msg).await.expect("on client message error");
                         } else {
                             info!("Client disconnected: {}", &self.socket_addr);
                             break;
@@ -88,21 +100,34 @@ impl Subscriber {
             match serde_json::from_str::<ClientMessage>(&client_msg) {
                 Ok(client_msg) => {
                     match client_msg {
-                        ClientMessage::Event(e) => {
-                            if let Ok(_) = e.verify() {
-                                // 持久化
-                                if let Err(e) = self.sender.send(SubscriberEvent::Event(e)).await {
-                                    // 重发？
-                                    error!("Subscriber send msg to relay faild : {}", e);
-                                };
-                            } else {
-                                info!("msg verify failed！{:?}", e);
+                        ClientMessage::Auth(e) => {
+                            if self.check_auth_event(&e) {
+                                self.user_info = Some(UserInfo { pubkey: e.pubkey });
                             }
+                        }
+                        ClientMessage::Event(e) => {
+                            if self.user_info.is_none() {
+                                self.send_auth_event().await;
+                                return Ok(());
+                            }
+                            if let Err(err) = e.verify() {
+                                error!("msg verify failed！{:?}, event: {:?}", err, e);
+                                return Ok(());
+                            }
+                            // 持久化
+                            if let Err(e) = self.sender.send(SubscriberEvent::Event(e)).await {
+                                // 重发？
+                                error!("Subscriber send msg to relay faild : {}", e);
+                            };
                         }
                         // 订阅某个内容
                         // 需要向 Relay 一次性请求数据
                         // todo: 可以考虑用 onceShot
                         ClientMessage::REQ(id, filters) => {
+                            if self.user_info.is_none() {
+                                self.send_auth_event().await;
+                                return Ok(());
+                            }
                             self.subscriptions.insert(id.clone(), filters.clone());
                             let (tx, rx) = mpsc::channel::<RelayMessage>(32);
                             match self
@@ -142,6 +167,60 @@ impl Subscriber {
         Ok(())
     }
 
+    pub fn check_auth_event(&self, e: &Event) -> bool {
+        // To verify AUTH messages, relays must ensure:
+        // that the kind is 22242;
+        // that the event created_at is close (e.g. within ~10 minutes) of the current time;
+        // that the "challenge" tag matches the challenge sent before;
+        // that the "relay" tag matches the relay URL:
+        // URL normalization techniques can be applied. For most cases just checking if the domain name is correct should be enough.
+        if let Err(err) = e.verify() {
+            error!("auth msg verify failed！{:?}, event: {:?}", err, e);
+            return false;
+        }
+        if e.kind != EventKind::Auth {
+            return false;
+        }
+
+        let (mut relay, mut challenge) = ("", "");
+        for tag in &e.tags {
+            match tag {
+                Tag::Relay(r) => {
+                    relay = r;
+                }
+                Tag::Challenge(c) => {
+                    challenge = c;
+                }
+                _ => {}
+            }
+        }
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("get now time faild!")
+            .as_secs();
+        let duration = now - (e.created_at.0) as u64;
+        let ten_minutes = 10 * 60 as u64;
+
+        if ten_minutes - duration > 0 && challenge == "ksana.io" && relay == "wss://relay.ksana.net"
+        {
+            true
+        } else {
+            false
+        }
+    }
+    pub async fn send_auth_event(&mut self) {
+        if self.user_info.is_none() {
+            let auth_event_str = serde_json::to_string(&RelayMessage::Auth("ksana.io".to_string()))
+                .expect("relay gen auth_event faild!");
+
+            if let Err(e) = self.writer.send(Message::Text(auth_event_str)).await {
+                if let tokio_tungstenite::tungstenite::Error::ConnectionClosed = e {
+                } else {
+                    error!("send auth event faild: {}", e);
+                }
+            }
+        }
+    }
     pub fn is_subscribed(&self, event: &Event) -> Option<Vec<RelayMessage>> {
         let mut rmsgs: Vec<RelayMessage> = vec![];
         for (id, filters) in &self.subscriptions {

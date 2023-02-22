@@ -9,6 +9,7 @@ pub enum EventKind {
     RecommendRelay,
     EncryptedDirectMessage,
     EventDeletion,
+    Auth,
     Other(u64),
 }
 
@@ -21,6 +22,7 @@ impl From<EventKind> for u64 {
             RecommendRelay => 3,
             EncryptedDirectMessage => 4,
             EventDeletion => 5,
+            Auth => 22242,
             Other(v) => v,
         }
     }
@@ -35,6 +37,7 @@ impl From<u64> for EventKind {
             2 => RecommendRelay,
             4 => EncryptedDirectMessage,
             5 => EventDeletion,
+            22242 => Auth,
             v => Other(v),
         }
     }

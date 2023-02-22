@@ -21,6 +21,8 @@ pub enum Tag {
         recommended_relay_url: Option<String>,
         petname: Option<String>,
     },
+    Relay(String),
+    Challenge(String),
     Subject(String),
     // 无 tag
     Empty,
@@ -40,6 +42,8 @@ impl Tag {
             Tag::Event { .. } => "e".to_string(),
             Tag::Subject(_) => "subject".to_string(),
             Tag::Pubkey { .. } => "p".to_string(),
+            Tag::Relay(_) => "relay".to_string(),
+            Tag::Challenge(_) => "challenge".to_string(),
             Tag::Empty => panic!("empty tags have no tagname"),
             Tag::Other { tag, .. } => tag.to_owned(),
         }
@@ -86,6 +90,18 @@ impl Serialize for Tag {
                 if let Some(pn) = petname {
                     seq.serialize_element(pn)?;
                 }
+                seq.end()
+            }
+            Tag::Challenge(challenge) => {
+                let mut seq = serializer.serialize_seq(None)?;
+                seq.serialize_element("challenge")?;
+                seq.serialize_element(challenge)?;
+                seq.end()
+            }
+            Tag::Relay(relay) => {
+                let mut seq = serializer.serialize_seq(None)?;
+                seq.serialize_element("relay")?;
+                seq.serialize_element(relay)?;
                 seq.end()
             }
             Tag::Subject(subject) => {
@@ -184,6 +200,20 @@ impl<'de> Visitor<'de> for TagVisitor {
                     }
                 };
                 Ok(Tag::Subject(sub))
+            }
+            "relay" => {
+                let relay = match seq.next_element()? {
+                    Some(s) => s,
+                    None => return Ok(Tag::Relay("".to_string())),
+                };
+                Ok(Tag::Relay(relay))
+            }
+            "challenge" => {
+                let challenge = match seq.next_element()? {
+                    Some(s) => s,
+                    None => return Ok(Tag::Challenge("".to_string())),
+                };
+                Ok(Tag::Challenge(challenge))
             }
             _ => {
                 let mut data = Vec::new();
