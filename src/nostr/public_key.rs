@@ -13,6 +13,9 @@ impl PublicKey {
             vec.try_into().map_err(|_| Error::WrongLengthHexString)?,
         ))
     }
+    pub fn as_hex_string(&self) -> String {
+        hex::encode(&self.0)
+    }
 }
 
 impl Serialize for PublicKey {

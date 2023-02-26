@@ -43,10 +43,8 @@ mod tests {
     use super::*;
     #[test]
     pub fn test_gen_key() {
-        loop {
-            let key = PrivateKey::gen();
-            println!("{}", key.as_hex_string());
-            println!("{}", key.get_public_key_string());
-        }
+        let key = PrivateKey::gen();
+        println!("{}", key.as_hex_string());
+        println!("{}", key.get_public_key_string());
     }
 }

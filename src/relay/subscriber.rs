@@ -13,7 +13,8 @@ use std::{
 use tokio::{
     net::TcpStream,
     sync::broadcast::Receiver as BroadcastReceiver,
-    sync::mpsc::{self, Receiver, Sender},
+    sync::mpsc::Sender,
+    sync::{oneshot, oneshot::Receiver as OneshotReciver},
 };
 use tokio_tungstenite::{
     self,
@@ -85,11 +86,7 @@ impl Subscriber {
     pub async fn on_brodcast_message(&mut self, evt: &Event) -> Result<()> {
         if let Some(msgs) = self.is_subscribed(evt) {
             for msg in msgs {
-                let msg_str =
-                    serde_json::to_string(&msg).expect("serde json faild from relay message");
-                if let Err(e) = self.writer.send(Message::Text(msg_str)).await {
-                    error!("send message failed from brodcast: {}", e);
-                }
+                self.send_relay_message(&msg).await;
             }
         }
         Ok(())
@@ -102,7 +99,13 @@ impl Subscriber {
                     match client_msg {
                         ClientMessage::Auth(e) => {
                             if self.check_auth_event(&e) {
+                                let key_str = e.pubkey.as_hex_string();
                                 self.user_info = Some(UserInfo { pubkey: e.pubkey });
+                                let auth_info = RelayMessage::Notice(
+                                    format!("Authentication success with pubkey: {}", key_str)
+                                        .to_string(),
+                                );
+                                self.send_relay_message(&auth_info).await;
                             }
                         }
                         ClientMessage::Event(e) => {
@@ -122,14 +125,13 @@ impl Subscriber {
                         }
                         // 订阅某个内容
                         // 需要向 Relay 一次性请求数据
-                        // todo: 可以考虑用 onceShot
                         ClientMessage::REQ(id, filters) => {
                             if self.user_info.is_none() {
                                 self.send_auth_event().await;
                                 return Ok(());
                             }
                             self.subscriptions.insert(id.clone(), filters.clone());
-                            let (tx, rx) = mpsc::channel::<RelayMessage>(32);
+                            let (tx, rx) = oneshot::channel();
                             match self
                                 .sender
                                 .send(SubscriberEvent::Req(id, filters, tx))
@@ -157,11 +159,10 @@ impl Subscriber {
         Ok(())
     }
 
-    pub async fn on_relay_message(&mut self, mut rx: Receiver<RelayMessage>) -> Result<()> {
-        while let Some(msg) = rx.recv().await {
-            let msg_str = serde_json::to_string(&msg).expect("serde json faild from relay message");
-            if let Err(e) = self.writer.send(Message::Text(msg_str)).await {
-                error!("send message failed from relay: {}", e);
+    pub async fn on_relay_message(&mut self, rx: OneshotReciver<Vec<RelayMessage>>) -> Result<()> {
+        if let Ok(msgs) = rx.await {
+            for rmsg in msgs {
+                self.send_relay_message(&rmsg).await;
             }
         }
         Ok(())
@@ -210,15 +211,10 @@ impl Subscriber {
     }
     pub async fn send_auth_event(&mut self) {
         if self.user_info.is_none() {
-            let auth_event_str = serde_json::to_string(&RelayMessage::Auth("ksana.io".to_string()))
-                .expect("relay gen auth_event faild!");
-
-            if let Err(e) = self.writer.send(Message::Text(auth_event_str)).await {
-                if let tokio_tungstenite::tungstenite::Error::ConnectionClosed = e {
-                } else {
-                    error!("send auth event faild: {}", e);
-                }
-            }
+            let notice = &RelayMessage::Notice("restricted: we can't serve DMs to unauthenticated users, does your client implement NIP-42?".to_string());
+            self.send_relay_message(notice).await;
+            self.send_relay_message(&RelayMessage::Auth("ksana.io".to_string()))
+                .await;
         }
     }
     pub fn is_subscribed(&self, event: &Event) -> Option<Vec<RelayMessage>> {
@@ -232,6 +228,14 @@ impl Subscriber {
             None
         } else {
             Some(rmsgs)
+        }
+    }
+    pub async fn send_relay_message(&mut self, relay_message: &RelayMessage) {
+        let msg_str = serde_json::to_string(&relay_message).expect("msg serde faild!");
+        if let Err(e) = self.writer.send(Message::Text(msg_str)).await {
+            if let tokio_tungstenite::tungstenite::Error::ConnectionClosed = e {
+                error!("send relay msg error: {}", e)
+            }
         }
     }
 }

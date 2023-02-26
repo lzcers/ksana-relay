@@ -5,11 +5,11 @@ mod subscriber;
 pub use filter::*;
 pub use relayer::*;
 pub use subscriber::*;
-use tokio::sync::mpsc::Sender;
+use tokio::sync::oneshot::Sender;
 
 use crate::nostr::{Event, Filter, RelayMessage};
 
 pub enum SubscriberEvent {
     Event(Event),
-    Req(String, Vec<Filter>, Sender<RelayMessage>),
+    Req(String, Vec<Filter>, Sender<Vec<RelayMessage>>),
 }

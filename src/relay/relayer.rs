@@ -51,18 +51,16 @@ impl Relay {
                     self.process_event(e).await;
                 }
                 SubscriberEvent::Req(id, filters, sx) => {
-                    let mut events: Vec<Event> = vec![];
+                    let mut events: Vec<RelayMessage> = vec![];
                     for event in &self.events {
                         for filter in &filters {
-                            if EventFilter::filter(event, filter) {
-                                events.push(event.clone())
+                            if EventFilter::filter(&event, filter) {
+                                events.push(RelayMessage::Event(id.clone(), event.clone()))
                             }
                         }
                     }
-                    for e in events {
-                        if let Err(send_err) = sx.send(RelayMessage::Event(id.clone(), e)).await {
-                            error!("relay msg send error: {}", send_err);
-                        }
+                    if let Err(_) = sx.send(events) {
+                        error!("relay msg send error");
                     }
                 }
             }
